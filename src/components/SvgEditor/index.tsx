@@ -1,29 +1,19 @@
 import { Box, Container, Flex, Heading } from "@chakra-ui/react";
-import { faArrowPointer, faCircle, faHandPointer, faMinus, faPaintBrush, faPalette, faSquare, faWorm } from "@fortawesome/free-solid-svg-icons";
+import { faArrowPointer, faCircle, faMinus, faPaintBrush, faPalette, faSquare, faWorm } from "@fortawesome/free-solid-svg-icons";
 import { FontAwesomeIcon } from "@fortawesome/react-fontawesome";
-import { Ellipse, Line, Path, Rect, SVG, Shape, Svg } from "@svgdotjs/svg.js";
+import { SVG, Shape, Svg } from "@svgdotjs/svg.js";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { SelectActionContext } from "../../context";
-import { ActionType } from "../../enums";
+import { SelectActionContext, SelectConfigActionContext } from "../../context";
+import { ActionType, ShapeConfigActionType } from "../../enums";
+import { FreeHandPointProps, ShapeProps } from "../../types";
+import { downloadSvg, updateShape } from "../../utils/SvgEditor";
 import { EditorMenu } from "./Menu";
 import { SelectActionButton } from "./SelectActionButton";
-
-type ShapeProps = {
-  x1: number;
-  y1: number;
-  x2: number;
-  y2: number;
-  width: number;
-  height: number;
-};
-
-type FreeHandPointProps = {
-  x: number;
-  y: number;
-}
+import { SelectConfigActionButton } from "./SelectConfigActionButton";
 
 export const SvgEditor: React.FC = () => {
-  const [currentAction, setCurrentAction] = useState(ActionType.TRANSFORM);
+  const [currentAction, setCurrentAction] = useState(ActionType.EDIT);
+  const [currentConfigAction, setCurrentConfigAction] = useState(ShapeConfigActionType.COLOR);
   const [svg, setSvg] = useState<Svg>();
   const [svgElements, setSvgElements] = useState<Shape[]>([]);
   const [history, setHistory] = useState<Shape[]>([]);
@@ -41,42 +31,8 @@ export const SvgEditor: React.FC = () => {
     height: 0,
   });
 
-  const onMouseMove = useCallback((e: MouseEvent) => {
-
-    currentShapeProps.current = {
-      ...currentShapeProps.current,
-      x2: e.offsetX,
-      y2: e.offsetY,
-      width: Math.abs(e.offsetX - currentShapeProps.current.x1),
-      height: Math.abs(e.offsetY - currentShapeProps.current.y1),
-    };
-
-    if (currentAction === ActionType.ELLIPSE) {
-
-      (selectedElement.current as Ellipse).move(currentShapeProps.current.x1, currentShapeProps.current.y1)
-        .radius(currentShapeProps.current.width, currentShapeProps.current.height);
-
-    } else if (currentAction === ActionType.SQUARE) {
-
-      (selectedElement.current as Rect).move(currentShapeProps.current.x1, currentShapeProps.current.y1)
-        .width(currentShapeProps.current.width).height(currentShapeProps.current.height);
-
-    } else if (currentAction === ActionType.LINE) {
-
-      (selectedElement.current as Line)
-        .plot(currentShapeProps.current.x1, currentShapeProps.current.y1, currentShapeProps.current.x2, currentShapeProps.current.y2)
-        .stroke({ width: 1, color: "black" });
-
-    } else if (currentAction === ActionType.FREE_HAND) {
-
-      freeHandPoints.push({ x: e.offsetX, y: e.offsetY });
-
-      (selectedElement.current as Path)
-        .plot(`M${currentShapeProps.current.x1} ${currentShapeProps.current.y1} ${freeHandPoints.map((point) => `L${point.x} ${point.y} M${point.x} ${point.y} `).join(" ")} Z`);
-
-    }
-
-  }, [currentAction, freeHandPoints]);
+  const onMouseMove = useCallback((e: MouseEvent) =>
+    updateShape(e, currentAction, currentShapeProps, selectedElement, freeHandPoints), [currentAction, freeHandPoints]);
 
   useEffect(() => {
 
@@ -127,62 +83,92 @@ export const SvgEditor: React.FC = () => {
   }, [svg, svgElements, isMouseDown, onMouseMove, currentAction]);
 
   const updateActiveAction = (actionType: ActionType) => setCurrentAction(actionType);
+  const updateActiveConfigAction = (configActionType: ShapeConfigActionType) => setCurrentConfigAction(configActionType);
+
+  const undo = () => {
+    let shape = [...svgElements].pop();
+    if (shape) {
+      setSvgElements(svgElements);
+      setHistory([...history, shape!])
+      shape?.remove();
+    }
+  };
+
+  const redo = () => {
+    let shape = [...history].pop();
+    if (shape) {
+      setHistory(history);
+      setSvgElements([...svgElements, shape!])
+      svg?.add(shape!);
+    }
+  };
+
+  window.onkeydown = (e) => {
+    e.preventDefault();
+    if (e.ctrlKey && e.key === "z") {
+      undo();
+    } else if (e.ctrlKey && e.key === "y") {
+      redo();
+    } else if (e.ctrlKey && e.shiftKey && e.key === "D") {
+      downloadSvg(svgRef.current!, "svg.svg");
+    } else if (e.altKey && e.key === "1") {
+      updateActiveAction(ActionType.EDIT);
+    } else if (e.altKey && e.key === "2") {
+      updateActiveAction(ActionType.ELLIPSE);
+    } else if (e.altKey && e.key === "3") {
+      updateActiveAction(ActionType.SQUARE);
+    } else if (e.altKey && e.key === "4") {
+      updateActiveAction(ActionType.LINE);
+    } else if (e.altKey && e.key === "5") {
+      updateActiveAction(ActionType.FREE_HAND);
+    }
+  };
 
   return (
-    <SelectActionContext.Provider value={currentAction}>
-      <Container maxW={"full"} p={0}>
-        <Flex h="12" bg="blackAlpha.800" alignItems={"center"}>
-          <Heading color={"white"} as={"h1"} size={"md"} ml={12} mr={6}>
-            Svg Editor
-          </Heading>
-          <Box fontSize={13}>
-            <EditorMenu menuTitle="Ficheiro" menuItems={[
-              { title: "Exportar como SVG", onClick: () => { } },
-              { title: "Exportar como Imagem", onClick: () => { } },
-            ]} />
-            <EditorMenu menuTitle="Editar" menuItems={[
-              {
-                title: "Desfazer", onClick: () => {
-                  let shape = svgElements.pop();
-                  if (shape) {
-                    setSvgElements(svgElements);
-                    setHistory([...history, shape!])
-                    shape?.remove();
-                  }
-                }
-              },
-              {
-                title: "Refazer", onClick: () => {
-                  let shape = history.pop();
-                  if (shape) {
-                    setHistory(history);
-                    setSvgElements([...svgElements, shape!])
-                    svg?.add(shape!);
-                  }
-                }
-              },
-            ]} />
-            <EditorMenu menuTitle="Ver" menuItems={[
-              { title: "Aumentar Zoom", onClick: () => { } },
-              { title: "Diminuir Zoom", onClick: () => { } },
-            ]} />
-            <EditorMenu menuTitle="Objeto" menuItems={[
-              { title: "Trazer para a frente", onClick: () => { } },
-              { title: "Enviar para trás", onClick: () => { } },
-            ]} />
-            <EditorMenu menuTitle="Ajuda" menuItems={[
-              { title: "Sobre o editor", onClick: () => { } },
-              { title: "Manual do editor", onClick: () => { } },
-            ]} />
-          </Box>
-        </Flex>
-        <Flex minH="calc(100vh - 96px)">
+    <Container maxW={"full"} p={0}>
+      <Flex h="12" bg="blackAlpha.800" alignItems={"center"}>
+        <Heading color={"white"} as={"h1"} size={"md"} ml={12} mr={6}>
+          Svg Editor
+        </Heading>
+        <Box fontSize={13}>
+          <EditorMenu menuTitle="Ficheiro" menuItems={[
+            {
+              title: "Exportar como SVG",
+              shortcut: "Ctrl + Shift + D",
+              onClick: () => { downloadSvg(svgRef.current!, "svg.svg") }
+            },
+          ]} />
+          <EditorMenu menuTitle="Editar" menuItems={[
+            {
+              title: "Desfazer",
+              shortcut: "Ctrl + Z",
+              onClick: undo
+            },
+            {
+              title: "Refazer",
+              shortcut: "Ctrl + Y",
+              onClick: redo
+            },
+          ]} />
+          <EditorMenu menuTitle="Ver" menuItems={[
+            { title: "Aumentar Zoom", onClick: () => { } },
+            { title: "Diminuir Zoom", onClick: () => { } },
+          ]} />
+          <EditorMenu menuTitle="Objeto" menuItems={[
+            { title: "Trazer para a frente", onClick: () => { } },
+            { title: "Enviar para trás", onClick: () => { } },
+          ]} />
+          <EditorMenu menuTitle="Ajuda" menuItems={[
+            { title: "Sobre o editor", onClick: () => { } },
+            { title: "Manual do editor", onClick: () => { } },
+          ]} />
+        </Box>
+      </Flex>
+      <Flex minH="calc(100vh - 96px)">
+        <SelectActionContext.Provider value={currentAction}>
           <Flex w="12" bg="blackAlpha.800" flexDir="column">
-            <SelectActionButton title="Transformar" actionType={ActionType.TRANSFORM} onClick={updateActiveAction}>
-              <FontAwesomeIcon icon={faArrowPointer} fontSize="18" color="white" />
-            </SelectActionButton>
             <SelectActionButton title="Editar" actionType={ActionType.EDIT} onClick={updateActiveAction}>
-              <FontAwesomeIcon icon={faHandPointer} fontSize="18" color="white" />
+              <FontAwesomeIcon icon={faArrowPointer} fontSize="18" color="white" />
             </SelectActionButton>
             <SelectActionButton title="Desenhar círculo" actionType={ActionType.ELLIPSE} onClick={updateActiveAction}>
               <FontAwesomeIcon icon={faCircle} fontSize="18" color="white" />
@@ -202,22 +188,24 @@ export const SvgEditor: React.FC = () => {
               display: "flex",
               flex: "1",
             }} />
+        </SelectActionContext.Provider>
+        <SelectConfigActionContext.Provider value={currentConfigAction}>
           <Flex w="12" bg="blackAlpha.800" flexDir="column">
-            <SelectActionButton title="Definições do preenchimento" actionType={ActionType.FILL_COLOR} onClick={updateActiveAction}>
+            <SelectConfigActionButton title="Definições do preenchimento" configActionType={ShapeConfigActionType.COLOR} onClick={updateActiveConfigAction}>
               <FontAwesomeIcon icon={faPalette} fontSize="18" color="white" />
-            </SelectActionButton>
-            <SelectActionButton title="Definições das bordas" actionType={ActionType.STROKE_COLOR} onClick={updateActiveAction}>
+            </SelectConfigActionButton>
+            <SelectConfigActionButton title="Definições das bordas" configActionType={ShapeConfigActionType.GEOMETRY} onClick={updateActiveConfigAction}>
               <FontAwesomeIcon icon={faWorm} fontSize="18" color="white" />
-            </SelectActionButton>
+            </SelectConfigActionButton>
           </Flex>
-        </Flex>
-        <Flex justifyContent={"center"} alignItems={"center"} textAlign={"center"} h={"12"} bg={"blackAlpha.800"}>
-          <Box color={"white"} fontSize={"sm"}>
-            &copy; {new Date().getFullYear()} Svg Editor | All rights reserved
-          </Box>
-        </Flex>
-      </Container>
-    </SelectActionContext.Provider>
+        </SelectConfigActionContext.Provider>
+      </Flex>
+      <Flex justifyContent={"center"} alignItems={"center"} textAlign={"center"} h={"12"} bg={"blackAlpha.800"}>
+        <Box color={"white"} fontSize={"sm"}>
+          &copy; {new Date().getFullYear()} Svg Editor | All rights reserved
+        </Box>
+      </Flex>
+    </Container >
   )
 };
 
